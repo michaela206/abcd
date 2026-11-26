@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zvuková smyčka</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #111; color: #fff;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; -webkit-tap-highlight-color: transparent;
+  }
+  main { padding: 24px; }
+  button {
+    width: 160px; height: 160px; border-radius: 50%;
+    border: 0; background: #fff; color: #111;
+    font-size: 64px; cursor: pointer;
+    box-shadow: 0 0 0 0 rgba(255,255,255,.5);
+  }
+  button.playing { animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(255,255,255,.45); }
+    100% { box-shadow: 0 0 0 40px rgba(255,255,255,0); }
+  }
+  p { margin-top: 24px; font-size: 18px; opacity: .8; }
+</style>
+</head>
+<body>
+<main>
+  <button id="btn" aria-label="Přehrát / pozastavit">▶</button>
+  <p id="msg">Klepněte pro spuštění zvuku</p>
+</main>
+
+<audio id="player" loop preload="auto" playsinline></audio>
+
+<script>
+/* ===== NASTAVENÍ =====
+   Vlastní zvuk: nahrajte soubor (např. smycka.mp3) vedle tohoto index.html
+   a zapište jeho název níže. Nechte prázdné, pro vestavěný ukázkový zvuk. */
+const AUDIO_FILE = "";   // např. "smycka.mp3"
+
+const btn = document.getElementById("btn");
+const msg = document.getElementById("msg");
+const player = document.getElementById("player");
+let playing = false;
+
+/* --- Ukázkový zvuk: jemný zacyklený akord, vytvořený přímo v prohlížeči --- */
+let ctx, master, nodes = [];
+function startSynth() {
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === "suspended") ctx.resume();
+  master = ctx.createGain();
+  master.gain.value = 0;
+  master.connect(ctx.destination);
+  master.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 1.5);
+
+  const freqs = [220, 277.18, 329.63, 440];       // A dur
+  freqs.forEach((f, i) => {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    o.type = "sine"; o.frequency.value = f;
+    g.gain.value = 0.18;
+    lfo.frequency.value = 0.15 + i * 0.07;
+    lfoGain.gain.value = 0.12;
+    lfo.connect(lfoGain).connect(g.gain);
+    o.connect(g).connect(master);
+    o.start(); lfo.start();
+    nodes.push(o, lfo);
+  });
+}
+function stopSynth() {
+  if (!master) return;
+  master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4);
+  const old = nodes; nodes = [];
+  setTimeout(() => old.forEach(n => { try { n.stop(); } catch(e){} }), 500);
+}
+
+/* --- Ovládání --- */
+async function start() {
+  try {
+    if (AUDIO_FILE) {
+      player.src = AUDIO_FILE;
+      await player.play();
+    } else {
+      startSynth();
+    }
+    playing = true;
+    btn.textContent = "⏸"; btn.classList.add("playing");
+    msg.textContent = "Přehrává se ve smyčce";
+  } catch (e) {
+    msg.textContent = "Zvuk se nepodařilo spustit, klepněte znovu";
+  }
+}
+function stop() {
+  if (AUDIO_FILE) player.pause(); else stopSynth();
+  playing = false;
+  btn.textContent = "▶"; btn.classList.remove("playing");
+  msg.textContent = "Klepněte pro spuštění zvuku";
+}
+btn.addEventListener("click", () => playing ? stop() : start());
+
+/* Pokus o automatické spuštění (většina mobilů ho zablokuje,
+   proto je tam tlačítko) + spuštění při prvním dotyku kamkoli. */
+if (AUDIO_FILE) {
+  player.src = AUDIO_FILE;
+  player.play().then(() => {
+    playing = true;
+    btn.textContent = "⏸"; btn.classList.add("playing");
+    msg.textContent = "Přehrává se ve smyčce";
+  }).catch(() => {});
+}
+document.addEventListener("touchend", function once() {
+  if (!playing) start();
+  document.removeEventListener("touchend", once);
+}, { once: true });
+
+/* Při návratu na stránku (po zamknutí telefonu) zvuk obnovit */
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && playing) {
+    if (AUDIO_FILE) player.play().catch(()=>{});
+    else if (ctx && ctx.state === "suspended") ctx.resume();
+  }
+});
+</script>
+</body>
+</html>
